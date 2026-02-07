@@ -1,0 +1,80 @@
+import Link from "next/link";
+import { getRequestClient, resetClient } from "@/lib/unsafe-client";
+
+export const dynamic = "force-dynamic";
+
+async function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export default async function UnsafePage() {
+  const client1 = getRequestClient();
+  await delay(200);
+  const client2 = getRequestClient();
+
+  const match = client1.requestId === client2.requestId;
+
+  const result = {
+    route: "unsafe",
+    pattern: "module singleton",
+    call1RequestId: client1.requestId,
+    call2RequestId: client2.requestId,
+    match,
+    timestamp: Date.now(),
+  };
+
+  // Reset AFTER building the response so the leak window is the 200ms delay
+  resetClient();
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <header className="border-b border-border px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link href="/" className="font-mono text-xs text-muted hover:text-foreground transition-colors">
+            ← Back
+          </Link>
+          <span className="text-border">|</span>
+          <div className="w-1.5 h-1.5 rounded-full bg-danger" />
+          <span className="font-mono text-sm text-danger tracking-wider uppercase">
+            Unsafe Route
+          </span>
+        </div>
+        <span className="font-mono text-xs text-muted">Module Singleton</span>
+      </header>
+
+      <main className="flex-1 px-6 py-12 max-w-3xl mx-auto w-full">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold mb-2">
+            Module Singleton <span className="text-danger">(Unsafe)</span>
+          </h1>
+          <p className="text-sm text-muted leading-relaxed">
+            Under Fluid Compute concurrency, concurrent requests can share the
+            same module-scoped variable — leaking state across request boundaries.
+          </p>
+        </div>
+
+        <div className="border border-border rounded-lg overflow-hidden mb-6">
+          <div className="bg-surface-2 px-4 py-2 border-b border-border flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-danger animate-[pulse-danger_2s_ease-in-out_infinite]" />
+            <span className="font-mono text-xs text-muted">response</span>
+          </div>
+          <pre className="bg-surface p-5 text-sm leading-relaxed overflow-x-auto font-mono">
+            {JSON.stringify(result, null, 2)}
+          </pre>
+        </div>
+
+        <div
+          className={`border rounded-lg px-4 py-3 font-mono text-sm ${
+            match
+              ? "border-amber/30 bg-amber/5 text-amber"
+              : "border-danger-border bg-danger-glow text-danger"
+          }`}
+        >
+          {match
+            ? "⚠ IDs match — but this singleton may leak across concurrent requests"
+            : "✗ IDs don't match — leak detected within this request"}
+        </div>
+      </main>
+    </div>
+  );
+}

@@ -1,26 +1,204 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Berkeley Mono";
+  src: local("Berkeley Mono"), local("BerkeleyMono-Regular");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0b0e11;
+  --foreground: #c4cdd8;
+  --surface: #12161c;
+  --surface-2: #181d25;
+  --border: #1e252f;
+  --border-hover: #2a3342;
+  --muted: #5a6a7e;
+  --green: #22c55e;
+  --green-dim: #16a34a;
+  --green-glow: rgba(34, 197, 94, 0.12);
+  --green-border: rgba(34, 197, 94, 0.25);
+  --red: #ef4444;
+  --red-dim: #dc2626;
+  --red-glow: rgba(239, 68, 68, 0.10);
+  --red-border: rgba(239, 68, 68, 0.25);
+  --amber: #f59e0b;
+  --cyan: #22d3ee;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-hover: var(--border-hover);
+  --color-muted: var(--muted);
+  --color-safe: var(--green);
+  --color-safe-dim: var(--green-dim);
+  --color-safe-glow: var(--green-glow);
+  --color-safe-border: var(--green-border);
+  --color-danger: var(--red);
+  --color-danger-dim: var(--red-dim);
+  --color-danger-glow: var(--red-glow);
+  --color-danger-border: var(--red-border);
+  --color-amber: var(--amber);
+  --color-cyan: var(--cyan);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* Noise overlay for texture */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+}
+
+/* Scanline effect */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+}
+
+/* Code blocks */
+pre, code {
+  font-family: var(--font-geist-mono), "Berkeley Mono", "SF Mono", "Fira Code", monospace;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+/* Pulse animation for status indicators */
+@keyframes pulse-safe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
+}
+@keyframes pulse-danger {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
+}
+
+/* Fade in stagger */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-up {
+  animation: fade-up 0.5s ease-out both;
+}
+
+/* Subtle border glow on hover */
+@keyframes border-glow-safe {
+  0%, 100% { border-color: var(--green-border); }
+  50% { border-color: rgba(34, 197, 94, 0.45); }
+}
+@keyframes border-glow-danger {
+  0%, 100% { border-color: var(--red-border); }
+  50% { border-color: rgba(239, 68, 68, 0.4); }
+}
+
+/* ── Simulation animations ────────────────────────────────── */
+
+/* Flash-in for new text elements */
+.sim-flash-in {
+  animation: sim-flash 0.4s ease-out both;
+}
+@keyframes sim-flash {
+  0% {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Overwrite flash — amber pulse on the singleton box */
+.sim-overwrite-flash {
+  animation: sim-overwrite 0.5s ease-out;
+}
+@keyframes sim-overwrite {
+  0% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 12px 2px rgba(245, 158, 11, 0.3);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+  }
+}
+
+/* Leak result flash */
+.sim-leak-flash {
+  animation: sim-leak 0.6s ease-out;
+}
+@keyframes sim-leak {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+  30% {
+    box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.3);
+  }
+}
+
+/* Reading pulse — scope box glows when being read */
+.sim-reading-pulse {
+  animation: sim-reading 0.6s ease-in-out;
+}
+@keyframes sim-reading {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+  50% {
+    box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.25);
+  }
 }
