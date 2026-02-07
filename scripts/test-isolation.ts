@@ -1,11 +1,9 @@
 /**
  * Isolation load test for Fluid Compute demo.
  *
- * Tests 4 endpoints:
- *   /safe          → Server Component with React.cache()
- *   /unsafe        → Server Component with module singleton
- *   /api/safe      → Route Handler with AsyncLocalStorage
- *   /api/unsafe    → Route Handler with module singleton
+ * Tests 2 Server Component endpoints:
+ *   /safe          → React.cache() per-request isolation
+ *   /unsafe        → module-scoped singleton (leaks under concurrency)
  *
  * Strategy for maximizing concurrency on a single Fluid instance:
  *  - Long server-side delay (default 1000ms) keeps requests in-flight longer
@@ -27,16 +25,6 @@ const DELAY_MS = parseInt(process.env.DELAY || "1000", 10);
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface EndpointResult {
-  route: string;
-  pattern: string;
-  call1RequestId: string;
-  call2RequestId: string;
-  match: boolean;
-  delayMs: number;
-  timestamp: number;
-}
 
 interface RequestRecord {
   id: string;
@@ -72,24 +60,7 @@ function percentile(sorted: number[], p: number): number {
   return sorted[Math.max(0, idx)];
 }
 
-/** Send a request to a JSON API endpoint */
-async function sendApiRequest(url: string): Promise<RequestRecord> {
-  const start = performance.now();
-  try {
-    const res = await fetch(url);
-    const latencyMs = Math.round(performance.now() - start);
-    if (!res.ok) {
-      return { id: "", latencyMs, ok: false, error: `${res.status} ${res.statusText}` };
-    }
-    const data = (await res.json()) as EndpointResult;
-    return { id: data.call1RequestId, latencyMs, ok: true };
-  } catch (err) {
-    const latencyMs = Math.round(performance.now() - start);
-    return { id: "", latencyMs, ok: false, error: String(err) };
-  }
-}
-
-/** Send a request to a Server Component page (HTML response) and extract the JSON from <pre> */
+/** Send a request to a Server Component page and extract call1RequestId from HTML */
 async function sendPageRequest(url: string): Promise<RequestRecord> {
   const start = performance.now();
   try {
@@ -99,9 +70,8 @@ async function sendPageRequest(url: string): Promise<RequestRecord> {
       return { id: "", latencyMs, ok: false, error: `${res.status} ${res.statusText}` };
     }
     const html = await res.text();
-    // The page renders JSON.stringify(result, null, 2) inside a <pre> tag
-    // Extract the JSON between the last <pre...> and </pre>
-    const preMatch = html.match(/"call1RequestId":\s*"([^"]+)"/);
+    // Next.js HTML-encodes the JSON inside <pre> tags, so match the encoded form
+    const preMatch = html.match(/call1RequestId(?:&quot;|"):\s*(?:&quot;|")([^"&]+)/);
     if (!preMatch) {
       return { id: "", latencyMs, ok: false, error: "could not parse call1RequestId from HTML" };
     }
@@ -151,9 +121,7 @@ function analyze(path: string, records: RequestRecord[]): PhaseReport {
 // Continuous stream load generator
 // ---------------------------------------------------------------------------
 
-type SendFn = (url: string) => Promise<RequestRecord>;
-
-async function streamLoad(path: string, send: SendFn): Promise<RequestRecord[]> {
+async function streamLoad(path: string): Promise<RequestRecord[]> {
   const url = `${BASE_URL}${path}?delay=${DELAY_MS}`;
   const records: RequestRecord[] = [];
   const inflight: Promise<void>[] = [];
@@ -191,7 +159,7 @@ async function streamLoad(path: string, send: SendFn): Promise<RequestRecord[]> 
           await sleep(targetOffset - actualOffset);
         }
 
-        const p = send(url).then((r) => {
+        const p = sendPageRequest(url).then((r) => {
           records.push(r);
         });
         inflight.push(p);
@@ -236,57 +204,32 @@ async function main() {
   console.log(`Delay:      ${DELAY_MS}ms (server-side per request)`);
   console.log(`In-flight:  ~${Math.round(MAX_RPS * DELAY_MS / 1000)} concurrent at peak`);
 
-  // --- Server Components (React.cache vs module singleton) ---
-  console.log(`\n── Server Components ──────────────────────────\n`);
+  console.log(`\n── React.cache() (isolated) ───────────────────\n`);
 
   console.log(`  /safe (React.cache)`);
-  const safeSCRecords = await streamLoad("/safe", sendPageRequest);
-  const safeSC = analyze("/safe", safeSCRecords);
-  printReport(safeSC);
-  console.log();
+  const safeRecords = await streamLoad("/safe");
+  const safe = analyze("/safe", safeRecords);
+  printReport(safe);
+
+  console.log(`\n── Module Singleton (leaking) ─────────────────\n`);
 
   console.log(`  /unsafe (module singleton)`);
-  const unsafeSCRecords = await streamLoad("/unsafe", sendPageRequest);
-  const unsafeSC = analyze("/unsafe", unsafeSCRecords);
-  printReport(unsafeSC);
-
-  // --- API Routes (AsyncLocalStorage vs module singleton) ---
-  console.log(`\n── API Routes ────────────────────────────────\n`);
-
-  console.log(`  /api/safe (AsyncLocalStorage)`);
-  const safeAPIRecords = await streamLoad("/api/safe", sendApiRequest);
-  const safeAPI = analyze("/api/safe", safeAPIRecords);
-  printReport(safeAPI);
-  console.log();
-
-  console.log(`  /api/unsafe (module singleton)`);
-  const unsafeAPIRecords = await streamLoad("/api/unsafe", sendApiRequest);
-  const unsafeAPI = analyze("/api/unsafe", unsafeAPIRecords);
-  printReport(unsafeAPI);
+  const unsafeRecords = await streamLoad("/unsafe");
+  const unsafe = analyze("/unsafe", unsafeRecords);
+  printReport(unsafe);
 
   // --- Summary ---
   console.log(`\n── RESULTS ───────────────────────────────────\n`);
-  console.log(`Server Components:`);
-  console.log(`  /safe (React.cache):       ${safeSC.leaked ? "❌ LEAKED" : "✅ ISOLATED"}`);
+  console.log(`  /safe  (React.cache):    ${safe.leaked ? "❌ LEAKED" : "✅ ISOLATED"}`);
   console.log(
-    `  /unsafe (singleton):       ${
-      unsafeSC.leaked
-        ? "❌ LEAKED (expected — " + unsafeSC.duplicates + " duplicate IDs)"
-        : "⚠️  No leak detected (try higher MAX_RPS or longer DURATION)"
-    }`
-  );
-  console.log();
-  console.log(`API Routes:`);
-  console.log(`  /api/safe (ALS):           ${safeAPI.leaked ? "❌ LEAKED" : "✅ ISOLATED"}`);
-  console.log(
-    `  /api/unsafe (singleton):   ${
-      unsafeAPI.leaked
-        ? "❌ LEAKED (expected — " + unsafeAPI.duplicates + " duplicate IDs)"
+    `  /unsafe (singleton):     ${
+      unsafe.leaked
+        ? "❌ LEAKED (expected — " + unsafe.duplicates + " duplicate IDs)"
         : "⚠️  No leak detected (try higher MAX_RPS or longer DURATION)"
     }`
   );
 
-  const anyFailed = [safeSC, unsafeSC, safeAPI, unsafeAPI].some((r) => r.failed > 0);
+  const anyFailed = [safe, unsafe].some((r) => r.failed > 0);
   if (anyFailed) {
     console.log(`\n⚠️  Some requests failed — check error rates above.`);
     console.log(`   If error rate is high, you may be hitting WAF/DDoS mitigations.`);

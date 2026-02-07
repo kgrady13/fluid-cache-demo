@@ -64,22 +64,13 @@ export default function Home() {
                 never leak across concurrent requests.
               </p>
 
-              <div className="flex gap-2">
-                <Link
-                  href="/safe"
-                  className="inline-flex items-center gap-1.5 font-mono text-xs border border-safe-border text-safe px-3 py-1.5 rounded hover:bg-safe-glow transition-colors"
-                >
-                  <span>cache()</span>
-                  <span className="text-muted">→</span>
-                </Link>
-                <a
-                  href="/api/safe"
-                  className="inline-flex items-center gap-1.5 font-mono text-xs border border-border text-muted px-3 py-1.5 rounded hover:border-border-hover hover:text-foreground transition-colors"
-                >
-                  <span>AsyncLocalStorage</span>
-                  <span className="text-muted">→</span>
-                </a>
-              </div>
+              <Link
+                href="/safe"
+                className="inline-flex items-center gap-1.5 font-mono text-xs border border-safe-border text-safe px-3 py-1.5 rounded hover:bg-safe-glow transition-colors"
+              >
+                <span>Try it</span>
+                <span className="text-muted">→</span>
+              </Link>
             </div>
 
             {/* Unsafe side */}
@@ -108,22 +99,13 @@ export default function Home() {
                 A&apos;s state — a cross-request data leak.
               </p>
 
-              <div className="flex gap-2">
-                <Link
-                  href="/unsafe"
-                  className="inline-flex items-center gap-1.5 font-mono text-xs border border-danger-border text-danger px-3 py-1.5 rounded hover:bg-danger-glow transition-colors"
-                >
-                  <span>Server Component</span>
-                  <span className="text-muted">→</span>
-                </Link>
-                <a
-                  href="/api/unsafe"
-                  className="inline-flex items-center gap-1.5 font-mono text-xs border border-border text-muted px-3 py-1.5 rounded hover:border-border-hover hover:text-foreground transition-colors"
-                >
-                  <span>API Route</span>
-                  <span className="text-muted">→</span>
-                </a>
-              </div>
+              <Link
+                href="/unsafe"
+                className="inline-flex items-center gap-1.5 font-mono text-xs border border-danger-border text-danger px-3 py-1.5 rounded hover:bg-danger-glow transition-colors"
+              >
+                <span>Try it</span>
+                <span className="text-muted">→</span>
+              </Link>
             </div>
           </div>
         </div>
