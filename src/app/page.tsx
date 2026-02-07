@@ -59,9 +59,9 @@ export default function Home() {
               </div>
 
               <p className="text-sm text-muted leading-relaxed mb-5">
-                Each request gets its own memoization scope.
-                Two calls to the same cached function within one request
-                return the same value — but never leak across requests.
+                <code className="font-mono text-xs bg-surface-2 px-1 py-0.5 rounded border border-border">React.cache()</code> gives each request its own memoization scope.
+                Two calls within one request return the same value — but
+                never leak across concurrent requests.
               </p>
 
               <div className="flex gap-2">
@@ -69,14 +69,14 @@ export default function Home() {
                   href="/safe"
                   className="inline-flex items-center gap-1.5 font-mono text-xs border border-safe-border text-safe px-3 py-1.5 rounded hover:bg-safe-glow transition-colors"
                 >
-                  <span>Server Component</span>
+                  <span>cache()</span>
                   <span className="text-muted">→</span>
                 </Link>
                 <a
                   href="/api/safe"
                   className="inline-flex items-center gap-1.5 font-mono text-xs border border-border text-muted px-3 py-1.5 rounded hover:border-border-hover hover:text-foreground transition-colors"
                 >
-                  <span>API Route</span>
+                  <span>AsyncLocalStorage</span>
                   <span className="text-muted">→</span>
                 </a>
               </div>
@@ -103,7 +103,7 @@ export default function Home() {
               </div>
 
               <p className="text-sm text-muted leading-relaxed mb-5">
-                A module-level variable persists across concurrent requests
+                A <code className="font-mono text-xs bg-surface-2 px-1 py-0.5 rounded border border-border">let client</code> module-level variable persists across concurrent requests
                 sharing the same function instance. Request B reads Request
                 A&apos;s state — a cross-request data leak.
               </p>

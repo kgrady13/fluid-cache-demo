@@ -1,6 +1,12 @@
 /**
  * Isolation load test for Fluid Compute demo.
  *
+ * Tests 4 endpoints:
+ *   /safe          → Server Component with React.cache()
+ *   /unsafe        → Server Component with module singleton
+ *   /api/safe      → Route Handler with AsyncLocalStorage
+ *   /api/unsafe    → Route Handler with module singleton
+ *
  * Strategy for maximizing concurrency on a single Fluid instance:
  *  - Long server-side delay (default 1000ms) keeps requests in-flight longer
  *  - Continuous stream of requests (not batch-and-wait) ensures overlap
@@ -66,7 +72,8 @@ function percentile(sorted: number[], p: number): number {
   return sorted[Math.max(0, idx)];
 }
 
-async function sendRequest(url: string): Promise<RequestRecord> {
+/** Send a request to a JSON API endpoint */
+async function sendApiRequest(url: string): Promise<RequestRecord> {
   const start = performance.now();
   try {
     const res = await fetch(url);
@@ -76,6 +83,29 @@ async function sendRequest(url: string): Promise<RequestRecord> {
     }
     const data = (await res.json()) as EndpointResult;
     return { id: data.call1RequestId, latencyMs, ok: true };
+  } catch (err) {
+    const latencyMs = Math.round(performance.now() - start);
+    return { id: "", latencyMs, ok: false, error: String(err) };
+  }
+}
+
+/** Send a request to a Server Component page (HTML response) and extract the JSON from <pre> */
+async function sendPageRequest(url: string): Promise<RequestRecord> {
+  const start = performance.now();
+  try {
+    const res = await fetch(url);
+    const latencyMs = Math.round(performance.now() - start);
+    if (!res.ok) {
+      return { id: "", latencyMs, ok: false, error: `${res.status} ${res.statusText}` };
+    }
+    const html = await res.text();
+    // The page renders JSON.stringify(result, null, 2) inside a <pre> tag
+    // Extract the JSON between the last <pre...> and </pre>
+    const preMatch = html.match(/"call1RequestId":\s*"([^"]+)"/);
+    if (!preMatch) {
+      return { id: "", latencyMs, ok: false, error: "could not parse call1RequestId from HTML" };
+    }
+    return { id: preMatch[1], latencyMs, ok: true };
   } catch (err) {
     const latencyMs = Math.round(performance.now() - start);
     return { id: "", latencyMs, ok: false, error: String(err) };
@@ -119,19 +149,11 @@ function analyze(path: string, records: RequestRecord[]): PhaseReport {
 
 // ---------------------------------------------------------------------------
 // Continuous stream load generator
-//
-// Instead of batch-and-wait, this fires requests at a steady rate with
-// staggered starts. Each request takes ~DELAY_MS to complete on the server,
-// so at N rps with a 1000ms delay, there are always ~N requests in-flight
-// at any moment, maximizing the chance they land on the same instance.
-//
-// Phases:
-//   1. Warm-up:  20% of duration at ~25% of max RPS
-//   2. Ramp:     30% of duration, linearly increasing to max RPS
-//   3. Sustain:  50% of duration at max RPS
 // ---------------------------------------------------------------------------
 
-async function streamLoad(path: string): Promise<RequestRecord[]> {
+type SendFn = (url: string) => Promise<RequestRecord>;
+
+async function streamLoad(path: string, send: SendFn): Promise<RequestRecord[]> {
   const url = `${BASE_URL}${path}?delay=${DELAY_MS}`;
   const records: RequestRecord[] = [];
   const inflight: Promise<void>[] = [];
@@ -159,26 +181,22 @@ async function streamLoad(path: string): Promise<RequestRecord[]> {
         phase.startRps + (phase.endRps - phase.startRps) * progress
       );
 
-      // Spread requests evenly across this 1-second tick
       const intervalMs = 1000 / currentRps;
       const tickStart = Date.now();
 
       for (let i = 0; i < currentRps; i++) {
-        // Stagger each request start
         const targetOffset = i * intervalMs;
         const actualOffset = Date.now() - tickStart;
         if (targetOffset > actualOffset) {
           await sleep(targetOffset - actualOffset);
         }
 
-        // Fire and don't wait — let it resolve in the background
-        const p = sendRequest(url).then((r) => {
+        const p = send(url).then((r) => {
           records.push(r);
         });
         inflight.push(p);
       }
 
-      // Pace to fill the rest of this second
       const tickElapsed = Date.now() - tickStart;
       const remaining = 1000 - tickElapsed;
       if (remaining > 0) await sleep(remaining);
@@ -188,7 +206,6 @@ async function streamLoad(path: string): Promise<RequestRecord[]> {
     process.stdout.write("\n");
   }
 
-  // Wait for all in-flight requests to complete
   process.stdout.write("    draining in-flight requests...");
   await Promise.all(inflight);
   process.stdout.write(" done\n");
@@ -218,33 +235,59 @@ async function main() {
   console.log(`Max RPS:    ${MAX_RPS}`);
   console.log(`Delay:      ${DELAY_MS}ms (server-side per request)`);
   console.log(`In-flight:  ~${Math.round(MAX_RPS * DELAY_MS / 1000)} concurrent at peak`);
+
+  // --- Server Components (React.cache vs module singleton) ---
+  console.log(`\n── Server Components ──────────────────────────\n`);
+
+  console.log(`  /safe (React.cache)`);
+  const safeSCRecords = await streamLoad("/safe", sendPageRequest);
+  const safeSC = analyze("/safe", safeSCRecords);
+  printReport(safeSC);
   console.log();
 
-  // --- /api/safe ---
+  console.log(`  /unsafe (module singleton)`);
+  const unsafeSCRecords = await streamLoad("/unsafe", sendPageRequest);
+  const unsafeSC = analyze("/unsafe", unsafeSCRecords);
+  printReport(unsafeSC);
+
+  // --- API Routes (AsyncLocalStorage vs module singleton) ---
+  console.log(`\n── API Routes ────────────────────────────────\n`);
+
   console.log(`  /api/safe (AsyncLocalStorage)`);
-  const safeRecords = await streamLoad("/api/safe");
-  const safe = analyze("/api/safe", safeRecords);
-  printReport(safe);
+  const safeAPIRecords = await streamLoad("/api/safe", sendApiRequest);
+  const safeAPI = analyze("/api/safe", safeAPIRecords);
+  printReport(safeAPI);
   console.log();
 
-  // --- /api/unsafe ---
   console.log(`  /api/unsafe (module singleton)`);
-  const unsafeRecords = await streamLoad("/api/unsafe");
-  const unsafe = analyze("/api/unsafe", unsafeRecords);
-  printReport(unsafe);
+  const unsafeAPIRecords = await streamLoad("/api/unsafe", sendApiRequest);
+  const unsafeAPI = analyze("/api/unsafe", unsafeAPIRecords);
+  printReport(unsafeAPI);
 
   // --- Summary ---
-  console.log(`\n--- RESULTS ---`);
-  console.log(`/api/safe:   ${safe.leaked ? "❌ LEAKED" : "✅ ISOLATED"}`);
+  console.log(`\n── RESULTS ───────────────────────────────────\n`);
+  console.log(`Server Components:`);
+  console.log(`  /safe (React.cache):       ${safeSC.leaked ? "❌ LEAKED" : "✅ ISOLATED"}`);
   console.log(
-    `/api/unsafe: ${
-      unsafe.leaked
-        ? "❌ LEAKED (expected — " + unsafe.duplicates + " duplicate IDs)"
+    `  /unsafe (singleton):       ${
+      unsafeSC.leaked
+        ? "❌ LEAKED (expected — " + unsafeSC.duplicates + " duplicate IDs)"
+        : "⚠️  No leak detected (try higher MAX_RPS or longer DURATION)"
+    }`
+  );
+  console.log();
+  console.log(`API Routes:`);
+  console.log(`  /api/safe (ALS):           ${safeAPI.leaked ? "❌ LEAKED" : "✅ ISOLATED"}`);
+  console.log(
+    `  /api/unsafe (singleton):   ${
+      unsafeAPI.leaked
+        ? "❌ LEAKED (expected — " + unsafeAPI.duplicates + " duplicate IDs)"
         : "⚠️  No leak detected (try higher MAX_RPS or longer DURATION)"
     }`
   );
 
-  if (safe.failed > 0 || unsafe.failed > 0) {
+  const anyFailed = [safeSC, unsafeSC, safeAPI, unsafeAPI].some((r) => r.failed > 0);
+  if (anyFailed) {
     console.log(`\n⚠️  Some requests failed — check error rates above.`);
     console.log(`   If error rate is high, you may be hitting WAF/DDoS mitigations.`);
     console.log(`   See: https://vercel.com/docs/vercel-firewall/vercel-waf/system-bypass-rules`);

@@ -7,12 +7,27 @@ async function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export default async function SafePage() {
-  const client1 = getRequestClient();
-  await delay(200);
-  const client2 = getRequestClient();
+export default async function SafePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ delay?: string }>;
+}) {
+  const params = await searchParams;
+  const delayMs = parseInt(params.delay || "1000", 10);
+  const reqId = crypto.randomUUID().slice(0, 8);
 
+  const client1 = getRequestClient();
+  console.log(`[safe:rsc]   req=${reqId} WRITE  cache()=${client1.requestId.slice(0, 8)} (delay ${delayMs}ms)`);
+
+  await delay(delayMs);
+
+  const client2 = getRequestClient();
   const match = client1.requestId === client2.requestId;
+  console.log(
+    `[safe:rsc]   req=${reqId} READ   cache()=${client2.requestId.slice(0, 8)} → ${
+      match ? "✓ same" : `✗ MISMATCH (wrote ${client1.requestId.slice(0, 8)}, got ${client2.requestId.slice(0, 8)})`
+    }`
+  );
 
   const result = {
     route: "safe",
@@ -20,6 +35,7 @@ export default async function SafePage() {
     call1RequestId: client1.requestId,
     call2RequestId: client2.requestId,
     match,
+    delayMs,
     timestamp: Date.now(),
   };
 

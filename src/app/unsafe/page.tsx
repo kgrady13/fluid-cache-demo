@@ -7,12 +7,27 @@ async function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export default async function UnsafePage() {
-  const client1 = getRequestClient();
-  await delay(200);
-  const client2 = getRequestClient();
+export default async function UnsafePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ delay?: string }>;
+}) {
+  const params = await searchParams;
+  const delayMs = parseInt(params.delay || "1000", 10);
+  const reqId = crypto.randomUUID().slice(0, 8);
 
+  const client1 = getRequestClient();
+  console.log(`[unsafe:rsc] req=${reqId} WRITE  singleton=${client1.requestId.slice(0, 8)} (delay ${delayMs}ms)`);
+
+  await delay(delayMs);
+
+  const client2 = getRequestClient();
   const match = client1.requestId === client2.requestId;
+  console.log(
+    `[unsafe:rsc] req=${reqId} READ   singleton=${client2.requestId.slice(0, 8)} → ${
+      match ? "✓ same" : `✗ LEAKED (wrote ${client1.requestId.slice(0, 8)}, got ${client2.requestId.slice(0, 8)})`
+    }`
+  );
 
   const result = {
     route: "unsafe",
@@ -20,10 +35,11 @@ export default async function UnsafePage() {
     call1RequestId: client1.requestId,
     call2RequestId: client2.requestId,
     match,
+    delayMs,
     timestamp: Date.now(),
   };
 
-  // Reset AFTER building the response so the leak window is the 200ms delay
+  // Reset AFTER building the response — the leak window is the delay period
   resetClient();
 
   return (
